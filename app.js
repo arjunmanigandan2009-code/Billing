@@ -504,6 +504,15 @@ function printBillById(id) {
   openModal('print-modal');
 }
 
+function printBillDocument() {
+  const printArea = document.getElementById('print-area');
+  if (!printArea.querySelector('.bill-doc')) {
+    showToast('Bill preview is empty', 'error');
+    return;
+  }
+  window.print();
+}
+
 // =============================================
 // BUILD BILL HTML (for print)
 // =============================================

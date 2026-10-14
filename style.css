@@ -557,6 +557,21 @@ tr:hover td { background: #fafbff; }
   background: #fff;
 }
 
+#print-modal .modal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#print-modal .modal-header { flex: 0 0 auto; }
+
+#print-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* TOAST */
 .toast {
   position: fixed;
@@ -607,11 +622,36 @@ tr:hover td { background: #fafbff; }
 /* ---- PRINT STYLES ---- */
 @media print {
   body { background: #fff; font-size: 12px; }
-  #app, .no-print { display: none !important; }
-  .print-modal-overlay { display: block !important; background: none; padding: 0; }
-  .modal { box-shadow: none; max-width: 100%; max-height: none; border-radius: 0; }
-  .modal-header { display: none; }
-  .print-area { padding: 10px; }
+  body > :not(#print-modal) { display: none !important; }
+  .print-modal-overlay {
+    display: block !important;
+    position: static !important;
+    background: none;
+    padding: 0;
+    overflow: visible !important;
+  }
+  #print-modal .modal {
+    display: block !important;
+    position: static !important;
+    box-shadow: none;
+    width: 100%;
+    max-width: 100%;
+    height: auto !important;
+    max-height: none;
+    overflow: visible !important;
+    border-radius: 0;
+  }
+  #print-modal .no-print { display: none !important; }
+  #print-area { padding: 10px; overflow: visible !important; }
+  .bill-doc {
+    display: block !important;
+    visibility: visible !important;
+    width: 100%;
+    max-width: 100%;
+  }
+  .bill-items-table { min-width: 0 !important; table-layout: fixed; }
+  .bill-items-table th,
+  .bill-items-table td { overflow-wrap: anywhere; }
 }
 
 /* PRINT BILL LAYOUT */
@@ -952,6 +992,42 @@ tr:hover td { background: #fafbff; }
     max-height: 100dvh;
     height: 100dvh;
   }
+  #print-modal .modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--card);
+    padding: 12px 14px;
+  }
+  #print-area { padding: 12px; }
+  .bill-items-table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+  }
+  .bill-items-table th,
+  .bill-items-table td {
+    padding: 5px 2px;
+    font-size: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .bill-items-table th:nth-child(1),
+  .bill-items-table td:nth-child(1) { width: 5%; }
+  .bill-items-table th:nth-child(2),
+  .bill-items-table td:nth-child(2) { width: 25%; }
+  .bill-items-table th:nth-child(3),
+  .bill-items-table td:nth-child(3) { width: 8%; }
+  .bill-items-table th:nth-child(4),
+  .bill-items-table td:nth-child(4),
+  .bill-items-table th:nth-child(5),
+  .bill-items-table td:nth-child(5) { width: 12%; }
+  .bill-items-table th:nth-child(6),
+  .bill-items-table td:nth-child(6) { width: 10%; }
+  .bill-items-table th:nth-child(7),
+  .bill-items-table td:nth-child(7) { width: 8%; }
+  .bill-items-table th:nth-child(8),
+  .bill-items-table td:nth-child(8) { width: 20%; }
 
   /* Mini preview compact */
   .mini-preview { padding: 12px; }
