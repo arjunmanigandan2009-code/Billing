@@ -37,6 +37,8 @@ let state = {
 document.addEventListener('DOMContentLoaded', () => {
   loadFromStorage();
   initNav();
+  initEnterActions();
+  initTheme();
   initBillDate();
   generateBillNo();
   renderAllDataLists();
@@ -48,9 +50,46 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // =============================================
+// THEME TOGGLE
+// =============================================
+function initTheme() {
+  const saved = localStorage.getItem('billease_theme') || 'light';
+  applyTheme(saved);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('billease_theme', theme);
+  // Sync toggle button state
+  const btn = document.getElementById('theme-toggle-btn');
+  const lightLabel = document.getElementById('theme-label-light');
+  const darkLabel = document.getElementById('theme-label-dark');
+  if (btn) {
+    btn.classList.toggle('dark-mode', theme === 'dark');
+    // Swap icon inside thumb
+    const thumb = btn.querySelector('.theme-toggle-thumb');
+    if (thumb) {
+      thumb.innerHTML = theme === 'dark'
+        ? '<i class="fa-solid fa-moon" style="font-size:12px;color:#4f46e5;"></i>'
+        : '<i class="fa-solid fa-sun" style="font-size:12px;color:#f59e0b;"></i>';
+    }
+  }
+  if (lightLabel) lightLabel.classList.toggle('active', theme === 'light');
+  if (darkLabel)  darkLabel.classList.toggle('active', theme === 'dark');
+}
+
+
+
+// =============================================
 // NAVIGATION
 // =============================================
 function initNav() {
+  // Sidebar nav items
   document.querySelectorAll('.nav-item').forEach(link => {
     link.addEventListener('click', e => {
       e.preventDefault();
@@ -58,6 +97,26 @@ function initNav() {
       switchView(view);
       document.querySelectorAll('.nav-item').forEach(l => l.classList.remove('active'));
       link.classList.add('active');
+      // Sync bottom nav
+      document.querySelectorAll('.mob-nav-item').forEach(l => {
+        l.classList.toggle('active', l.dataset.view === view);
+      });
+      closeSidebar();
+    });
+  });
+
+  // Mobile bottom nav items
+  document.querySelectorAll('.mob-nav-item').forEach(link => {
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      const view = link.dataset.view;
+      switchView(view);
+      document.querySelectorAll('.mob-nav-item').forEach(l => l.classList.remove('active'));
+      link.classList.add('active');
+      // Sync sidebar nav
+      document.querySelectorAll('.nav-item').forEach(l => {
+        l.classList.toggle('active', l.dataset.view === view);
+      });
     });
   });
 }
@@ -66,7 +125,79 @@ function switchView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const el = document.getElementById('view-' + name);
   if (el) el.classList.add('active');
+  // Scroll to top on view change (mobile)
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+// =============================================
+// SIDEBAR TOGGLE (mobile)
+// =============================================
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  sidebar.classList.toggle('open');
+  overlay.classList.toggle('active');
+  document.body.style.overflow = sidebar.classList.contains('open') ? 'hidden' : '';
+}
+
+function closeSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  sidebar.classList.remove('open');
+  overlay.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+// Close sidebar on Escape key
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeSidebar();
+    // Close any open modal too
+    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+  }
+});
+
+function initEnterActions() {
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.repeat || e.isComposing) return;
+
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.id === 'item-code') {
+      const product = findProductByCode(target.value);
+      if (product) {
+        e.preventDefault();
+        fillItemFromProduct(product);
+        document.getElementById('item-qty').focus();
+      }
+      return;
+    }
+    if (target.closest('button, a, select, textarea, [contenteditable="true"]')) return;
+
+    if (target instanceof HTMLInputElement &&
+        ['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(target.type)) {
+      return;
+    }
+
+    const openModals = document.querySelectorAll('.modal-overlay.open');
+    const activeModal = openModals[openModals.length - 1];
+    const actionButton = activeModal
+      ? activeModal.querySelector('[data-enter-default="modal"]')
+      : target.closest('#add-item-form')?.querySelector('[data-enter-default="scope"]') ||
+        document.querySelector('.view.active [data-enter-default="page"]');
+
+    if (!actionButton) return;
+
+    if (target instanceof HTMLInputElement && target.list) {
+      setTimeout(() => actionButton.click(), 0);
+    } else {
+      e.preventDefault();
+      actionButton.click();
+    }
+  });
+}
+
+
 
 // =============================================
 // BILL DATE & NUMBER
@@ -100,7 +231,11 @@ function addItem() {
   let special = parseFloat(val('item-special'));
   if (isNaN(special) || special <= 0) special = mrp;
 
-  const qty = parseFloat(val('item-qty')) || 1;
+  const qty = parseFloat(val('item-qty'));
+  if (!Number.isFinite(qty) || qty <= 0) {
+    showToast('Please enter a quantity greater than 0', 'error');
+    return;
+  }
   const discount = parseFloat(val('item-discount')) || 0;
   const hsn = val('item-hsn');
   const unit = val('item-unit');
@@ -130,10 +265,10 @@ function syncSpecialPrice() {
 }
 
 function clearItemForm() {
-  ['item-name','item-hsn','item-mrp','item-special','item-discount','item-desc'].forEach(id => {
+  ['item-code','item-name','item-hsn','item-mrp','item-special','item-discount','item-desc'].forEach(id => {
     document.getElementById(id).value = '';
   });
-  document.getElementById('item-qty').value = 1;
+  document.getElementById('item-qty').value = '';
   document.getElementById('item-special').placeholder = '0.00';
 }
 
@@ -532,6 +667,7 @@ function openProductModal(id) {
   if (id) {
     const p = state.products.find(p => p.id === id);
     if (p) {
+      document.getElementById('p-code').value = p.code || getNextProductCode();
       document.getElementById('p-name').value = p.name;
       document.getElementById('p-hsn').value = p.hsn || '';
       document.getElementById('p-mrp').value = p.mrp;
@@ -540,21 +676,34 @@ function openProductModal(id) {
     }
   } else {
     ['p-name','p-hsn','p-mrp','p-special'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('p-code').value = getNextProductCode();
     document.getElementById('p-unit').value = 'Pcs';
   }
   openModal('product-modal');
 }
 
 function saveProduct() {
+  const enteredCode = document.getElementById('p-code').value.trim();
+  if (!/^\d+$/.test(enteredCode)) {
+    showToast('Enter a numeric product code', 'error');
+    return;
+  }
+  const code = String(parseInt(enteredCode, 10)).padStart(3, '0');
   const name = document.getElementById('p-name').value.trim();
   if (!name) { showToast('Product name required', 'error'); return; }
   const mrp = parseFloat(document.getElementById('p-mrp').value) || 0;
   const special = parseFloat(document.getElementById('p-special').value) || mrp;
   const editId = document.getElementById('edit-product-id').value;
+  const duplicateCode = state.products.some(p => p.code === code && p.id !== Number(editId));
+  if (duplicateCode) {
+    showToast('Product code already exists', 'error');
+    return;
+  }
 
   if (editId) {
     const p = state.products.find(p => p.id === Number(editId));
     if (p) {
+      p.code = code;
       p.name = name;
       p.hsn = document.getElementById('p-hsn').value;
       p.mrp = mrp;
@@ -564,6 +713,7 @@ function saveProduct() {
   } else {
     state.products.push({
       id: Date.now(),
+      code,
       name,
       hsn: document.getElementById('p-hsn').value,
       mrp,
@@ -583,12 +733,13 @@ function renderProductsTable() {
   const tbody = document.getElementById('products-body');
   const cur = state.settings.currencySymbol || '₹';
   if (!state.products.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-msg"><i class="fa-solid fa-inbox"></i> No products added</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-msg"><i class="fa-solid fa-inbox"></i> No products added</td></tr>`;
     return;
   }
   tbody.innerHTML = state.products.map((p, i) => `
     <tr>
       <td>${i + 1}</td>
+      <td><strong>${esc(p.code)}</strong></td>
       <td><strong>${esc(p.name)}</strong></td>
       <td>${esc(p.hsn) || '-'}</td>
       <td>${cur}${p.mrp.toFixed(2)}</td>
@@ -605,13 +756,39 @@ function renderProductsTable() {
     </tr>`).join('');
 }
 
+function getNextProductCode() {
+  const usedCodes = new Set(state.products.map(p => p.code).filter(Boolean));
+  let codeNumber = 1;
+  while (usedCodes.has(String(codeNumber).padStart(3, '0'))) codeNumber++;
+  return String(codeNumber).padStart(3, '0');
+}
+
+function findProductByCode(code) {
+  const normalized = code.trim();
+  if (!/^\d+$/.test(normalized)) return undefined;
+  const formattedCode = String(parseInt(normalized, 10)).padStart(3, '0');
+  return state.products.find(p => p.code === formattedCode);
+}
+
+function fillItemFromProduct(product) {
+  document.getElementById('item-code').value = product.code || '';
+  document.getElementById('item-name').value = product.name;
+  document.getElementById('item-hsn').value = product.hsn || '';
+  document.getElementById('item-mrp').value = product.mrp || '';
+  document.getElementById('item-special').value = product.special || '';
+  document.getElementById('item-unit').value = product.unit || 'Pcs';
+}
+
+function autofillProductCode(code) {
+  const product = findProductByCode(code);
+  if (product) fillItemFromProduct(product);
+}
+
 function autofillProduct(name) {
-  const p = state.products.find(p => p.name.toLowerCase() === name.toLowerCase());
+  const normalizedName = name.trim().toLowerCase();
+  const p = state.products.find(p => p.name.toLowerCase() === normalizedName);
   if (p) {
-    document.getElementById('item-hsn').value = p.hsn || '';
-    document.getElementById('item-mrp').value = p.mrp || '';
-    document.getElementById('item-special').value = p.special || '';
-    document.getElementById('item-unit').value = p.unit || 'Pcs';
+    fillItemFromProduct(p);
   }
 }
 
@@ -706,6 +883,8 @@ function renderAllDataLists() {
   // Products
   const pdl = document.getElementById('product-list');
   pdl.innerHTML = state.products.map(p => `<option value="${esc(p.name)}">`).join('');
+  const productCodeList = document.getElementById('product-code-list');
+  productCodeList.innerHTML = state.products.map(p => `<option value="${esc(p.code)}">`).join('');
 
   // Customers
   const cdl = document.getElementById('customer-list');
@@ -858,6 +1037,7 @@ function importData(event) {
       const data = JSON.parse(e.target.result);
       if (data.state) {
         state = { ...state, ...data.state };
+        assignMissingProductCodes();
         saveToStorage();
         applySettings();
         renderBillsList();
@@ -896,10 +1076,23 @@ function loadFromStorage() {
     const data = JSON.parse(raw);
     if (data.bills) state.bills = data.bills;
     if (data.products) state.products = data.products;
+    const productsUpdated = assignMissingProductCodes();
     if (data.customers) state.customers = data.customers;
     if (data.settings) state.settings = { ...state.settings, ...data.settings };
     if (data.nextBillNo) state.nextBillNo = data.nextBillNo;
+    if (productsUpdated) saveToStorage();
   } catch (e) { console.warn('Load error', e); }
+}
+
+function assignMissingProductCodes() {
+  let updated = false;
+  state.products.forEach(product => {
+    if (!product.code) {
+      product.code = getNextProductCode();
+      updated = true;
+    }
+  });
+  return updated;
 }
 
 // =============================================
