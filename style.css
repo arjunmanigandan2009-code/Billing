@@ -557,6 +557,8 @@ tr:hover td { background: #fafbff; }
   background: #fff;
 }
 
+#print-document { display: none; }
+
 #print-modal .modal {
   display: flex;
   flex-direction: column;
@@ -621,34 +623,29 @@ tr:hover td { background: #fafbff; }
 
 /* ---- PRINT STYLES ---- */
 @media print {
-  body { background: #fff; font-size: 12px; }
-  body > :not(#print-modal) { display: none !important; }
-  .print-modal-overlay {
-    display: block !important;
-    position: static !important;
-    background: none;
-    padding: 0;
-    overflow: visible !important;
-  }
-  #print-modal .modal {
-    display: block !important;
-    position: static !important;
-    box-shadow: none;
-    width: 100%;
-    max-width: 100%;
+  html,
+  body {
+    width: 100% !important;
     height: auto !important;
-    max-height: none;
+    min-height: 0 !important;
     overflow: visible !important;
-    border-radius: 0;
+    background: #fff !important;
   }
-  #print-modal .no-print { display: none !important; }
-  #print-area { padding: 10px; overflow: visible !important; }
-  .bill-doc {
+
+  body { font-size: 12px; }
+  body > :not(#print-document) { display: none !important; }
+  #print-document {
     display: block !important;
-    visibility: visible !important;
-    width: 100%;
-    max-width: 100%;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #111 !important;
   }
+  #print-document .bill-doc { display: block !important; width: 100%; max-width: 100%; }
   .bill-items-table { min-width: 0 !important; table-layout: fixed; }
   .bill-items-table th,
   .bill-items-table td { overflow-wrap: anywhere; }

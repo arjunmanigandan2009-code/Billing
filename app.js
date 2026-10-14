@@ -510,6 +510,15 @@ function printBillDocument() {
     showToast('Bill preview is empty', 'error');
     return;
   }
+
+  document.getElementById('print-document')?.remove();
+  const printDocument = document.createElement('div');
+  printDocument.id = 'print-document';
+  printDocument.className = 'print-area';
+  printDocument.innerHTML = printArea.innerHTML;
+  document.body.appendChild(printDocument);
+
+  window.addEventListener('afterprint', () => printDocument.remove(), { once: true });
   window.print();
 }
 
