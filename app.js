@@ -12,6 +12,7 @@ let state = {
   bills: [],
   products: [],
   customers: [],
+  expenses: [],
   settings: {
     companyName: '',
     companyTagline: '',
@@ -45,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
   applySettings();
   renderBillsList();
   renderProductsTable();
+  renderExpensesTable();
   renderCustomersTable();
   updatePreview();
 });
@@ -764,26 +766,117 @@ function getNextProductCode() {
 }
 
 function exportProductsCsv() {
-  const columns = ['Product Code', 'Name', 'HSN / SKU', 'MRP', 'Special Price', 'Unit'];
-  const rows = state.products.map(product => [
+  const columns = [
+    'Product Code', 'Name', 'HSN / SKU', 'MRP', 'Special Price', 'Unit',
+    'Expense Date', 'Expense Category', 'Expense Description', 'Expense Amount', 'Expense Payment Mode',
+    'Record Type',
+  ];
+  const productRows = state.products.map(product => [
     product.code || '',
     product.name || '',
     product.hsn || '',
     product.mrp ?? '',
     product.special ?? '',
     product.unit || '',
+    '', '', '', '', '',
+    'Item',
   ]);
-  const csv = [columns, ...rows]
+  const expenseRows = state.expenses.map(expense => [
+    '', '', '', '', '', '',
+    expense.date || '',
+    expense.category || '',
+    expense.description || '',
+    expense.amount ?? '',
+    expense.paymentMode || '',
+    'Expense',
+  ]);
+  const csv = [columns, ...productRows, ...expenseRows]
     .map(row => row.map(csvEscape).join(','))
     .join('\r\n');
   const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `items-${todayISO()}.csv`;
+  link.download = `items-and-expenses-${todayISO()}.csv`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
-  showToast('Items exported to CSV!', 'success');
+  showToast('Items and expenses exported to CSV!', 'success');
+}
+
+// =============================================
+// EXPENSES
+// =============================================
+function openExpenseModal(id) {
+  const expense = id ? state.expenses.find(item => item.id === id) : null;
+  document.getElementById('edit-expense-id').value = expense ? expense.id : '';
+  document.getElementById('expense-modal-title').textContent = expense ? 'Edit Expense' : 'Add Expense';
+  document.getElementById('expense-date').value = expense ? expense.date : todayISO();
+  document.getElementById('expense-category').value = expense ? expense.category : 'Office';
+  document.getElementById('expense-description').value = expense ? expense.description : '';
+  document.getElementById('expense-amount').value = expense ? expense.amount : '';
+  document.getElementById('expense-payment').value = expense ? expense.paymentMode : 'Cash';
+  openModal('expense-modal');
+}
+
+function saveExpense() {
+  const date = document.getElementById('expense-date').value;
+  const category = document.getElementById('expense-category').value;
+  const description = document.getElementById('expense-description').value.trim();
+  const amountText = document.getElementById('expense-amount').value;
+  const amount = Number(amountText);
+  if (!date || !category || !description || !amountText || !Number.isFinite(amount) || amount <= 0) {
+    showToast('Enter a date, category, description, and valid amount', 'error');
+    return;
+  }
+
+  const expense = {
+    date,
+    category,
+    description,
+    amount,
+    paymentMode: document.getElementById('expense-payment').value,
+  };
+  const editId = document.getElementById('edit-expense-id').value;
+  if (editId) {
+    const existing = state.expenses.find(item => item.id === Number(editId));
+    if (existing) Object.assign(existing, expense);
+  } else {
+    state.expenses.unshift({ id: Date.now(), ...expense });
+  }
+
+  saveToStorage();
+  renderExpensesTable();
+  closeModal('expense-modal');
+  showToast('Expense saved!', 'success');
+}
+
+function renderExpensesTable() {
+  const tbody = document.getElementById('expenses-body');
+  const total = state.expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+  const currency = state.settings.currencySymbol || '₹';
+  document.getElementById('expenses-total').textContent = `${currency}${total.toFixed(2)}`;
+  if (!state.expenses.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-msg"><i class="fa-solid fa-inbox"></i> No expenses recorded</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = state.expenses.map((expense, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${esc(formatDate(expense.date))}</td>
+      <td><span class="badge">${esc(expense.category)}</span></td>
+      <td>${esc(expense.description)}</td>
+      <td>${esc(expense.paymentMode) || '-'}</td>
+      <td><strong>${esc(currency)}${(Number(expense.amount) || 0).toFixed(2)}</strong></td>
+      <td>
+        <button class="btn btn-outline" style="padding:5px 10px;font-size:12px;" onclick="openExpenseModal(${expense.id})">
+          <i class="fa-solid fa-pencil"></i>
+        </button>
+        <button class="btn btn-danger" style="padding:5px 10px;font-size:12px;margin-left:4px;" onclick="confirmDelete('expense', ${expense.id})">
+          <i class="fa-solid fa-trash-can"></i>
+        </button>
+      </td>
+    </tr>`).join('');
 }
 
 function csvEscape(value) {
@@ -866,6 +959,7 @@ function importProductsCsv(event) {
       const hsnIndex = findColumn('hsnsku', 'hsn', 'sku');
       const specialIndex = findColumn('specialprice', 'special', 'sellingprice');
       const unitIndex = findColumn('unit');
+      const recordTypeIndex = findColumn('recordtype');
 
       if (codeIndex === undefined || nameIndex === undefined || mrpIndex === undefined) {
         throw new Error('CSV must include Product Code, Name, and MRP columns');
@@ -875,6 +969,7 @@ function importProductsCsv(event) {
       const imported = new Map();
       rows.forEach((values, index) => {
         if (values.every(value => !value.trim())) return;
+        if (recordTypeIndex !== undefined && (values[recordTypeIndex] || '').trim().toLowerCase() === 'expense') return;
         const rowNumber = index + 2;
         const rawCode = (values[codeIndex] || '').trim();
         if (!/^\d+$/.test(rawCode)) {
@@ -930,6 +1025,7 @@ function importProductsCsv(event) {
 
       saveToStorage();
       renderProductsTable();
+      renderExpensesTable();
       renderAllDataLists();
       showToast(`CSV imported: ${added} added, ${updated} updated`, 'success');
     } catch (error) {
@@ -1123,6 +1219,7 @@ function saveSettings() {
   saveToStorage();
   generateBillNo();
   updatePreview();
+  renderExpensesTable();
   showToast('Settings saved!', 'success');
 }
 
@@ -1172,7 +1269,7 @@ function closeModal(id) {
 // DELETE CONFIRM
 // =============================================
 function confirmDelete(type, id) {
-  const msg = { bill: 'this bill', product: 'this product', customer: 'this customer' };
+  const msg = { bill: 'this bill', product: 'this product', customer: 'this customer', expense: 'this expense' };
   document.getElementById('confirm-msg').textContent = `Are you sure you want to delete ${msg[type] || 'this item'}? This cannot be undone.`;
   openModal('confirm-modal');
 
@@ -1188,6 +1285,9 @@ function confirmDelete(type, id) {
       state.customers = state.customers.filter(c => c.id !== id);
       renderCustomersTable();
       renderAllDataLists();
+    } else if (type === 'expense') {
+      state.expenses = state.expenses.filter(expense => expense.id !== id);
+      renderExpensesTable();
     }
     saveToStorage();
     closeModal('confirm-modal');
@@ -1219,11 +1319,13 @@ function importData(event) {
       const data = JSON.parse(e.target.result);
       if (data.state) {
         state = { ...state, ...data.state };
+        if (!Array.isArray(state.expenses)) state.expenses = [];
         assignMissingProductCodes();
         saveToStorage();
         applySettings();
         renderBillsList();
         renderProductsTable();
+        renderExpensesTable();
         renderCustomersTable();
         renderAllDataLists();
         showToast('Data imported!', 'success');
@@ -1245,6 +1347,7 @@ function saveToStorage() {
       bills: state.bills,
       products: state.products,
       customers: state.customers,
+      expenses: state.expenses,
       settings: state.settings,
       nextBillNo: state.nextBillNo,
     }));
@@ -1258,6 +1361,7 @@ function loadFromStorage() {
     const data = JSON.parse(raw);
     if (data.bills) state.bills = data.bills;
     if (data.products) state.products = data.products;
+    if (Array.isArray(data.expenses)) state.expenses = data.expenses;
     const productsUpdated = assignMissingProductCodes();
     if (data.customers) state.customers = data.customers;
     if (data.settings) state.settings = { ...state.settings, ...data.settings };
