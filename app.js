@@ -763,6 +763,188 @@ function getNextProductCode() {
   return String(codeNumber).padStart(3, '0');
 }
 
+function exportProductsCsv() {
+  const columns = ['Product Code', 'Name', 'HSN / SKU', 'MRP', 'Special Price', 'Unit'];
+  const rows = state.products.map(product => [
+    product.code || '',
+    product.name || '',
+    product.hsn || '',
+    product.mrp ?? '',
+    product.special ?? '',
+    product.unit || '',
+  ]);
+  const csv = [columns, ...rows]
+    .map(row => row.map(csvEscape).join(','))
+    .join('\r\n');
+  const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `items-${todayISO()}.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  showToast('Items exported to CSV!', 'success');
+}
+
+function csvEscape(value) {
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  let quoteClosed = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (inQuotes) {
+      if (char === '"' && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (char === '"') {
+        inQuotes = false;
+        quoteClosed = true;
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"' && !field && !quoteClosed) {
+      inQuotes = true;
+    } else if (char === ',') {
+      row.push(field);
+      field = '';
+      quoteClosed = false;
+    } else if (char === '\n' || char === '\r') {
+      if (char === '\r' && text[i + 1] === '\n') i++;
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      quoteClosed = false;
+    } else if (!quoteClosed) {
+      field += char;
+    } else if (char.trim()) {
+      throw new Error('Unexpected character after a quoted field');
+    }
+  }
+
+  if (inQuotes) throw new Error('Unclosed quoted field');
+  if (field || row.length || quoteClosed) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function importProductsCsv(event) {
+  const input = event.target;
+  const file = input.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const rows = parseCsv(String(reader.result || '').replace(/^\uFEFF/, ''));
+      const headers = rows.shift();
+      if (!headers) throw new Error('CSV file is empty');
+
+      const headerIndexes = new Map(headers.map((header, index) => [
+        header.trim().toLowerCase().replace(/[\s/_-]+/g, ''),
+        index,
+      ]));
+      const findColumn = (...names) => names
+        .map(name => headerIndexes.get(name))
+        .find(index => index !== undefined);
+      const codeIndex = findColumn('productcode', 'code');
+      const nameIndex = findColumn('name', 'productname');
+      const mrpIndex = findColumn('mrp');
+      const hsnIndex = findColumn('hsnsku', 'hsn', 'sku');
+      const specialIndex = findColumn('specialprice', 'special', 'sellingprice');
+      const unitIndex = findColumn('unit');
+
+      if (codeIndex === undefined || nameIndex === undefined || mrpIndex === undefined) {
+        throw new Error('CSV must include Product Code, Name, and MRP columns');
+      }
+
+      const productsByCode = new Map(state.products.map(product => [product.code, product]));
+      const imported = new Map();
+      rows.forEach((values, index) => {
+        if (values.every(value => !value.trim())) return;
+        const rowNumber = index + 2;
+        const rawCode = (values[codeIndex] || '').trim();
+        if (!/^\d+$/.test(rawCode)) {
+          throw new Error(`Row ${rowNumber}: product code must be numeric`);
+        }
+        const code = String(parseInt(rawCode, 10)).padStart(3, '0');
+        const name = (values[nameIndex] || '').trim();
+        if (!name) throw new Error(`Row ${rowNumber}: product name is required`);
+
+        const mrpText = (values[mrpIndex] || '').trim();
+        const mrp = Number(mrpText);
+        if (!mrpText || !Number.isFinite(mrp) || mrp < 0) {
+          throw new Error(`Row ${rowNumber}: MRP must be a valid non-negative number`);
+        }
+        const product = { code, name, mrp };
+        if (specialIndex !== undefined) {
+          const specialText = (values[specialIndex] || '').trim();
+          const special = specialText ? Number(specialText) : mrp;
+          if (!Number.isFinite(special) || special < 0) {
+            throw new Error(`Row ${rowNumber}: special price must be a valid non-negative number`);
+          }
+          product.special = special;
+        }
+        if (imported.has(code)) {
+          throw new Error(`Row ${rowNumber}: duplicate product code ${code}`);
+        }
+
+        if (hsnIndex !== undefined) product.hsn = (values[hsnIndex] || '').trim();
+        if (unitIndex !== undefined) product.unit = (values[unitIndex] || '').trim() || 'Pcs';
+        imported.set(code, product);
+      });
+
+      if (!imported.size) throw new Error('CSV contains no product rows');
+
+      let added = 0;
+      let updated = 0;
+      imported.forEach((product, code) => {
+        const existing = productsByCode.get(code);
+        if (existing) {
+          Object.assign(existing, product);
+          updated++;
+        } else {
+          state.products.push({
+            id: Date.now() + added,
+            hsn: '',
+            special: product.mrp,
+            unit: 'Pcs',
+            ...product,
+          });
+          added++;
+        }
+      });
+
+      saveToStorage();
+      renderProductsTable();
+      renderAllDataLists();
+      showToast(`CSV imported: ${added} added, ${updated} updated`, 'success');
+    } catch (error) {
+      showToast(error.message || 'Unable to import CSV file', 'error');
+    } finally {
+      input.value = '';
+    }
+  };
+  reader.onerror = () => {
+    input.value = '';
+    showToast('Unable to read CSV file', 'error');
+  };
+  reader.readAsText(file);
+}
+
 function findProductByCode(code) {
   const normalized = code.trim();
   if (!/^\d+$/.test(normalized)) return undefined;

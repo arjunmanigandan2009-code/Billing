@@ -215,6 +215,13 @@ body {
   margin-bottom: 22px;
 }
 
+.product-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .view-header h1 {
   font-size: 22px;
   font-weight: 700;

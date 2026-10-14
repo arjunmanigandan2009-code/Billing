@@ -342,7 +342,12 @@
     <section id="view-products" class="view">
       <div class="view-header">
         <h1><i class="fa-solid fa-box"></i> Product Catalogue</h1>
-        <button class="btn btn-primary" data-enter-default="page" onclick="openProductModal()"><i class="fa-solid fa-plus"></i> Add Product</button>
+        <div class="product-actions">
+          <button class="btn btn-outline" onclick="exportProductsCsv()"><i class="fa-solid fa-download"></i> Export CSV</button>
+          <button class="btn btn-outline" onclick="document.getElementById('products-csv-input').click()"><i class="fa-solid fa-upload"></i> Import CSV</button>
+          <input type="file" id="products-csv-input" accept=".csv,text/csv" hidden onchange="importProductsCsv(event)" />
+          <button class="btn btn-primary" data-enter-default="page" onclick="openProductModal()"><i class="fa-solid fa-plus"></i> Add Product</button>
+        </div>
       </div>
       <div class="card">
         <div class="table-wrapper">
