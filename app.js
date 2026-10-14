@@ -1311,9 +1311,24 @@ function todayISO() {
 
 function formatDate(iso) {
   if (!iso) return '-';
-  const [y, m, d] = iso.split('-');
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${d} ${months[parseInt(m) - 1]} ${y}`;
+
+  let date;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [y, m, d] = iso.split('-');
+    date = new Date(Number(y), Number(m) - 1, Number(d));
+  } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(iso)) {
+    const [d, m, y] = iso.split('/');
+    date = new Date(Number(y), Number(m) - 1, Number(d));
+  } else {
+    date = new Date(iso);
+  }
+
+  if (Number.isNaN(date.getTime())) return iso;
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 function showToast(msg, type = '') {
