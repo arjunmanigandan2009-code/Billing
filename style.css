@@ -728,6 +728,10 @@ tr:hover td { background: #fafbff; }
   .bill-items-table { min-width: 0 !important; table-layout: fixed; }
   .bill-items-table th,
   .bill-items-table td { overflow-wrap: anywhere; }
+  .invoice-upi-payment,
+  .upi-payment-content,
+  .upi-qr { break-inside: avoid; page-break-inside: avoid; }
+  .upi-qr img { width: 132px !important; height: 132px !important; }
 }
 
 /* PRINT BILL LAYOUT */

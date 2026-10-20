@@ -172,8 +172,7 @@ function initEnterActions() {
       const product = findProductByCode(target.value);
       if (product) {
         e.preventDefault();
-        fillItemFromProduct(product);
-        document.getElementById('item-qty').focus();
+        selectProductCode(product, true);
       }
       return;
     }
@@ -258,7 +257,6 @@ function addItem() {
     showToast('Discount must be between 0 and 100%', 'error');
     return;
   }
-  const hsn = val('item-hsn');
   const unit = val('item-unit');
   const desc = val('item-desc');
 
@@ -276,7 +274,7 @@ function addItem() {
 
   const item = {
     id: Date.now(),
-    name, hsn, mrp, special, qty, unit, discount, desc,
+    name, mrp, special, qty, unit, discount, desc,
     effectivePrice, total
   };
 
@@ -319,11 +317,12 @@ function syncSpecialPrice() {
 }
 
 function clearItemForm() {
-  ['item-code','item-name','item-hsn','item-mrp','item-special','item-discount','item-desc'].forEach(id => {
+  ['item-code','item-name','item-mrp','item-special','item-discount','item-desc'].forEach(id => {
     document.getElementById(id).value = '';
   });
   document.getElementById('item-qty').value = '';
   document.getElementById('item-special').placeholder = '0.00';
+  document.getElementById('item-code').focus();
 }
 
 // =============================================
@@ -335,7 +334,7 @@ function renderBillTable() {
   document.getElementById('item-count').textContent = count + (count === 1 ? ' item' : ' items');
 
   if (!count) {
-    tbody.innerHTML = `<tr id="empty-row"><td colspan="10" class="empty-msg"><i class="fa-solid fa-inbox"></i> No items added yet</td></tr>`;
+    tbody.innerHTML = `<tr id="empty-row"><td colspan="9" class="empty-msg"><i class="fa-solid fa-inbox"></i> No items added yet</td></tr>`;
     return;
   }
 
@@ -349,7 +348,6 @@ function renderBillTable() {
           <strong>${esc(item.name)}</strong>
           ${item.desc ? `<br><small style="color:var(--muted)">${esc(item.desc)}</small>` : ''}
         </td>
-        <td>${esc(item.hsn) || '-'}</td>
         <td>
           ${hasSaving
             ? `<span class="mrp-strike">${cur}${item.mrp.toFixed(2)}</span>`
@@ -649,7 +647,7 @@ function renderInvoiceUpiQr(bill) {
   }
 }
 
-function printBillDocument() {
+async function printBillDocument() {
   const printArea = document.getElementById('print-area');
   if (!printArea.querySelector('.bill-doc')) {
     showToast('Bill preview is empty', 'error');
@@ -661,6 +659,34 @@ function printBillDocument() {
   printDocument.id = 'print-document';
   printDocument.className = 'print-area';
   printDocument.innerHTML = printArea.innerHTML;
+
+  const sourceQr = printArea.querySelector('.upi-qr');
+  const printQr = printDocument.querySelector('.upi-qr');
+  const qrCanvas = sourceQr?.querySelector('canvas');
+  const qrSourceImage = sourceQr?.querySelector('img');
+  if (printQr && (qrCanvas || qrSourceImage)) {
+    try {
+      const qrImage = document.createElement('img');
+      qrImage.alt = 'UPI payment QR code';
+      qrImage.width = qrCanvas?.width || 132;
+      qrImage.height = qrCanvas?.height || 132;
+      const imageLoaded = new Promise((resolve, reject) => {
+        qrImage.onload = resolve;
+        qrImage.onerror = () => reject(new Error('The QR image could not be loaded.'));
+        qrImage.src = qrCanvas
+          ? qrCanvas.toDataURL('image/png')
+          : qrSourceImage.src;
+        if (qrImage.complete && qrImage.naturalWidth > 0) resolve();
+      });
+      await imageLoaded;
+      printQr.replaceChildren(qrImage);
+    } catch (error) {
+      console.error('Unable to prepare the invoice UPI QR code for printing.', error);
+      showToast('Could not prepare the payment QR for printing.', 'error');
+      return;
+    }
+  }
+
   document.body.appendChild(printDocument);
 
   printDocument.getBoundingClientRect();
@@ -696,7 +722,6 @@ function buildBillHTML(bill) {
           <strong>${esc(item.name)}</strong>
           ${item.desc ? `<br><small style="color:#888">${esc(item.desc)}</small>` : ''}
         </td>
-        <td>${esc(item.hsn) || '-'}</td>
         <td>
           ${hasSaving
             ? `<span style="text-decoration:line-through;color:#999;font-size:11px;">${cur}${item.mrp.toFixed(2)}</span>`
@@ -756,7 +781,6 @@ function buildBillHTML(bill) {
           <tr>
             <th>#</th>
             <th>Item Description</th>
-            <th>HSN</th>
             <th>MRP</th>
             <th>Sp. Price</th>
             <th>Qty</th>
@@ -845,13 +869,12 @@ function openProductModal(id) {
     if (p) {
       document.getElementById('p-code').value = normalizeProductCode(p.code || getNextProductCode());
       document.getElementById('p-name').value = p.name;
-      document.getElementById('p-hsn').value = p.hsn || '';
       document.getElementById('p-mrp').value = p.mrp;
       document.getElementById('p-special').value = p.special || '';
       document.getElementById('p-unit').value = p.unit;
     }
   } else {
-    ['p-name','p-hsn','p-mrp','p-special'].forEach(id => document.getElementById(id).value = '');
+    ['p-name','p-mrp','p-special'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('p-code').value = getNextProductCode();
     document.getElementById('p-unit').value = 'Pcs';
   }
@@ -883,7 +906,6 @@ function saveProduct() {
     if (p) {
       p.code = code;
       p.name = name;
-      p.hsn = document.getElementById('p-hsn').value;
       p.mrp = mrp;
       p.special = special;
       p.unit = document.getElementById('p-unit').value;
@@ -893,7 +915,6 @@ function saveProduct() {
       id: Date.now(),
       code,
       name,
-      hsn: document.getElementById('p-hsn').value,
       mrp,
       special,
       unit: document.getElementById('p-unit').value,
@@ -911,7 +932,7 @@ function renderProductsTable() {
   const tbody = document.getElementById('products-body');
   const cur = state.settings.currencySymbol || '₹';
   if (!state.products.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-msg"><i class="fa-solid fa-inbox"></i> No products added</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-msg"><i class="fa-solid fa-inbox"></i> No products added</td></tr>`;
     return;
   }
   tbody.innerHTML = state.products.map((p, i) => `
@@ -919,7 +940,6 @@ function renderProductsTable() {
       <td>${i + 1}</td>
       <td><strong>${esc(normalizeProductCode(p.code))}</strong></td>
       <td><strong>${esc(p.name)}</strong></td>
-      <td>${esc(p.hsn) || '-'}</td>
       <td>${cur}${p.mrp.toFixed(2)}</td>
       <td>${p.special && p.special !== p.mrp ? `<span style="color:var(--success)">${cur}${p.special.toFixed(2)}</span>` : '-'}</td>
       <td>${esc(p.unit)}</td>
@@ -943,14 +963,13 @@ function getNextProductCode() {
 
 function exportProductsCsv() {
   const columns = [
-    'Product Code', 'Name', 'HSN / SKU', 'MRP', 'Special Price', 'Unit',
+    'Product Code', 'Name', 'MRP', 'Special Price', 'Unit',
     'Expense Date', 'Expense Category', 'Expense Description', 'Expense Amount', 'Expense Payment Mode',
     'Record Type',
   ];
   const productRows = state.products.map(product => [
     normalizeProductCode(product.code || ''),
     product.name || '',
-    product.hsn || '',
     product.mrp ?? '',
     product.special ?? '',
     product.unit || '',
@@ -958,7 +977,7 @@ function exportProductsCsv() {
     'Item',
   ]);
   const expenseRows = state.expenses.map(expense => [
-    '', '', '', '', '', '',
+    '', '', '', '', '',
     expense.date || '',
     expense.category || '',
     expense.description || '',
@@ -1132,7 +1151,6 @@ function importProductsCsv(event) {
       const codeIndex = findColumn('productcode', 'code');
       const nameIndex = findColumn('name', 'productname');
       const mrpIndex = findColumn('mrp');
-      const hsnIndex = findColumn('hsnsku', 'hsn', 'sku');
       const specialIndex = findColumn('specialprice', 'special', 'sellingprice');
       const unitIndex = findColumn('unit');
       const recordTypeIndex = findColumn('recordtype');
@@ -1175,7 +1193,6 @@ function importProductsCsv(event) {
           throw new Error(`Row ${rowNumber}: duplicate product code ${code}`);
         }
 
-        if (hsnIndex !== undefined) product.hsn = (values[hsnIndex] || '').trim();
         if (unitIndex !== undefined) product.unit = (values[unitIndex] || '').trim() || 'Pcs';
         imported.set(code, product);
       });
@@ -1192,7 +1209,6 @@ function importProductsCsv(event) {
         } else {
           state.products.push({
             id: Date.now() + added,
-            hsn: '',
             special: product.mrp,
             unit: 'Pcs',
             ...product,
@@ -1244,9 +1260,7 @@ function initProductCodeAutocomplete() {
     if (!option) return;
     const product = state.products.find(item => item.code === option.dataset.productCode);
     if (!product) return;
-    input.value = normalizeProductCode(product.code);
-    fillItemFromProduct(product);
-    hideProductCodeSuggestions();
+    selectProductCode(product, true);
   });
 
   input.addEventListener('keydown', event => {
@@ -1269,11 +1283,7 @@ function initProductCodeAutocomplete() {
       event.preventDefault();
       event.stopPropagation();
       const product = state.products.find(item => item.code === activeOption.dataset.productCode);
-      if (product) {
-        input.value = normalizeProductCode(product.code);
-        fillItemFromProduct(product);
-        hideProductCodeSuggestions();
-      }
+      if (product) selectProductCode(product, true);
     } else if (event.key === 'Escape') {
       hideProductCodeSuggestions();
     }
@@ -1289,7 +1299,17 @@ function initProductCodeAutocomplete() {
 }
 
 function handleProductCodeInput(input) {
-  autofillProductCode(input.value);
+  const product = findProductByCode(input.value);
+  const normalizedCode = normalizeProductCode(input.value);
+  const hasLongerCode = product && state.products.some(item => {
+    const otherCode = normalizeProductCode(item.code);
+    return otherCode !== normalizedCode && otherCode.startsWith(normalizedCode);
+  });
+  if (product && !hasLongerCode) {
+    selectProductCode(product, true);
+    return;
+  }
+  if (product) fillItemFromProduct(product);
   renderProductCodeSuggestions();
 }
 
@@ -1348,10 +1368,15 @@ function hideProductCodeSuggestions() {
 function fillItemFromProduct(product) {
   document.getElementById('item-code').value = normalizeProductCode(product.code || '');
   document.getElementById('item-name').value = product.name;
-  document.getElementById('item-hsn').value = product.hsn || '';
   document.getElementById('item-mrp').value = product.mrp || '';
   document.getElementById('item-special').value = product.special || '';
   document.getElementById('item-unit').value = product.unit || 'Pcs';
+}
+
+function selectProductCode(product, focusQuantity = false) {
+  fillItemFromProduct(product);
+  hideProductCodeSuggestions();
+  if (focusQuantity) document.getElementById('item-qty').focus();
 }
 
 function autofillProductCode(code) {
