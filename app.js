@@ -25,6 +25,8 @@ let state = {
     billPrefix: 'INV',
     billStart: 1001,
     currencySymbol: '₹',
+    upiId: '',
+    upiDisplayName: 'MARS Groups',
     defaultPayment: 'Cash',
     billFooter: 'Thank you for your purchase!',
     accentColor: '#4f46e5',
@@ -39,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadFromStorage();
   initNav();
   initEnterActions();
+  initProductCodeAutocomplete();
   initTheme();
   initBillDate();
   generateBillNo();
@@ -229,22 +232,47 @@ function addItem() {
   const name = val('item-name').trim();
   if (!name) { showToast('Please enter item name', 'error'); return; }
 
-  const mrp = parseFloat(val('item-mrp')) || 0;
-  let special = parseFloat(val('item-special'));
-  if (isNaN(special) || special <= 0) special = mrp;
+  const mrpInput = val('item-mrp').trim();
+  const mrp = mrpInput ? Number(mrpInput) : 0;
+  if (!Number.isFinite(mrp) || mrp < 0) {
+    showToast('Enter a valid MRP of 0 or more', 'error');
+    return;
+  }
 
-  const qty = parseFloat(val('item-qty'));
+  const specialInput = val('item-special').trim();
+  let special = specialInput ? Number(specialInput) : mrp;
+  if (!Number.isFinite(special) || special < 0) {
+    showToast('Enter a valid selling price of 0 or more', 'error');
+    return;
+  }
+  if (special === 0) special = mrp;
+
+  const qty = Number(val('item-qty'));
   if (!Number.isFinite(qty) || qty <= 0) {
     showToast('Please enter a quantity greater than 0', 'error');
     return;
   }
-  const discount = parseFloat(val('item-discount')) || 0;
+  const discountInput = val('item-discount').trim();
+  const discount = discountInput ? Number(discountInput) : 0;
+  if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
+    showToast('Discount must be between 0 and 100%', 'error');
+    return;
+  }
   const hsn = val('item-hsn');
   const unit = val('item-unit');
   const desc = val('item-desc');
 
   const effectivePrice = special * (1 - discount / 100);
   const total = effectivePrice * qty;
+  if (!Number.isFinite(total)) {
+    showToast('The item total is too large to calculate', 'error');
+    return;
+  }
+
+  const invalidItemCount = state.billItems.filter(item => !isValidBillItem(item)).length;
+  if (invalidItemCount) {
+    state.billItems = state.billItems.filter(isValidBillItem);
+  }
 
   const item = {
     id: Date.now(),
@@ -257,7 +285,31 @@ function addItem() {
   calcTotals();
   updatePreview();
   clearItemForm();
-  showToast('Item added!', 'success');
+  showToast(
+    invalidItemCount
+      ? `Item added. Removed ${invalidItemCount} invalid existing ${invalidItemCount === 1 ? 'line' : 'lines'}.`
+      : 'Item added!',
+    invalidItemCount ? 'error' : 'success'
+  );
+}
+
+function isValidBillItem(item) {
+  return item !== null &&
+    typeof item === 'object' &&
+    typeof item.name === 'string' &&
+    item.name.trim() !== '' &&
+    Number.isFinite(item.id) &&
+    Number.isFinite(item.mrp) &&
+    item.mrp >= 0 &&
+    Number.isFinite(item.special) &&
+    item.special >= 0 &&
+    Number.isFinite(item.qty) &&
+    item.qty > 0 &&
+    Number.isFinite(item.discount) &&
+    item.discount >= 0 &&
+    item.discount <= 100 &&
+    Number.isFinite(item.total) &&
+    item.total >= 0;
 }
 
 function syncSpecialPrice() {
@@ -392,6 +444,8 @@ function updatePreview() {
   document.getElementById('prev-payment').textContent = val('payment-mode') || '-';
 
   const cur = s.currencySymbol || '₹';
+  const total = state.billItems.reduce((sum, item) => sum + item.total, 0);
+  updateUpiPaymentPreview(total);
   const wrap = document.getElementById('prev-items-wrap');
   if (!state.billItems.length) {
     wrap.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:8px 0;">No items</div>';
@@ -408,7 +462,66 @@ function updatePreview() {
 document.getElementById('cust-name').addEventListener('input', updatePreview);
 document.getElementById('payment-mode').addEventListener('change', () => {
   document.getElementById('prev-payment').textContent = val('payment-mode');
+  updatePreview();
 });
+
+function isValidUpiId(upiId) {
+  return /^[^@\s]+@[^@\s]+$/.test(upiId);
+}
+
+function createUpiPaymentLink(amount, billNo = '') {
+  const upiId = (state.settings.upiId || '').trim();
+  if (!isValidUpiId(upiId) || !Number.isFinite(amount) || amount <= 0) return '';
+
+  const params = new URLSearchParams({
+    pa: upiId,
+    cu: 'INR',
+    am: amount.toFixed(2),
+  });
+  params.set('pn', (state.settings.upiDisplayName || '').trim() || 'MARS Groups');
+  if (billNo) params.set('tn', `Bill ${billNo}`);
+  return `upi://pay?${params.toString()}`;
+}
+
+function updateUpiPaymentPreview(amount) {
+  const panel = document.getElementById('upi-payment-preview');
+  const qrContainer = document.getElementById('prev-upi-qr');
+  const status = document.getElementById('prev-upi-status');
+  const upiId = (state.settings.upiId || '').trim();
+
+  panel.classList.toggle('hidden', val('payment-mode') !== 'UPI');
+  qrContainer.replaceChildren();
+  status.textContent = '';
+  if (val('payment-mode') !== 'UPI') return;
+
+  const link = createUpiPaymentLink(amount, val('bill-no'));
+  if (!isValidUpiId(upiId)) {
+    status.textContent = 'Add a valid UPI ID in Settings to create a payment QR.';
+    return;
+  }
+  if (!link) {
+    status.textContent = 'Add an item with a positive total to create a payment QR.';
+    return;
+  }
+  if (typeof QRCode === 'undefined') {
+    status.textContent = 'QR generation is unavailable. Check your internet connection.';
+    return;
+  }
+
+  try {
+    new QRCode(qrContainer, {
+      text: link,
+      width: 132,
+      height: 132,
+      colorDark: '#17221d',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+  } catch (error) {
+    console.error('Unable to generate the UPI payment QR code.', error);
+    status.textContent = 'Could not generate the payment QR. Please try again.';
+  }
+}
 
 // =============================================
 // SAVE BILL
@@ -480,7 +593,7 @@ function clearBill() {
 // =============================================
 function printPreview() {
   if (!state.billItems.length) { showToast('Add at least one item to preview', 'error'); return; }
-  const html = buildBillHTML({
+  const bill = {
     billNo: val('bill-no'),
     date: val('bill-date'),
     custName: val('cust-name') || 'Walk-in Customer',
@@ -492,8 +605,9 @@ function printPreview() {
     notes: val('bill-notes'),
     amountReceived: parseFloat(val('amount-received')) || 0,
     ...calcTotals(),
-  });
-  document.getElementById('print-area').innerHTML = html;
+  };
+  document.getElementById('print-area').innerHTML = buildBillHTML(bill);
+  renderInvoiceUpiQr(bill);
   openModal('print-modal');
 }
 
@@ -501,7 +615,33 @@ function printBillById(id) {
   const bill = state.bills.find(b => b.id === id);
   if (!bill) return;
   document.getElementById('print-area').innerHTML = buildBillHTML(bill);
+  renderInvoiceUpiQr(bill);
   openModal('print-modal');
+}
+
+function renderInvoiceUpiQr(bill) {
+  if (bill.paymentMode !== 'UPI' || !isValidUpiId((state.settings.upiId || '').trim())) return;
+  const qrContainer = document.getElementById('invoice-upi-qr');
+  const paymentLink = createUpiPaymentLink(bill.grandTotal, bill.billNo);
+  if (!qrContainer || !paymentLink) return;
+  if (typeof QRCode === 'undefined') {
+    qrContainer.textContent = 'QR generation is unavailable. Check your internet connection.';
+    return;
+  }
+
+  try {
+    new QRCode(qrContainer, {
+      text: paymentLink,
+      width: 132,
+      height: 132,
+      colorDark: '#17221d',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+  } catch (error) {
+    console.error('Unable to generate the invoice UPI QR code.', error);
+    qrContainer.textContent = 'Could not generate the payment QR.';
+  }
 }
 
 function printBillDocument() {
@@ -518,7 +658,7 @@ function printBillDocument() {
   printDocument.innerHTML = printArea.innerHTML;
   document.body.appendChild(printDocument);
 
-  window.addEventListener('afterprint', () => printDocument.remove(), { once: true });
+  printDocument.getBoundingClientRect();
   window.print();
 }
 
@@ -528,6 +668,12 @@ function printBillDocument() {
 function buildBillHTML(bill) {
   const s = state.settings;
   const cur = s.currencySymbol || '₹';
+  const upiPaymentHTML = bill.paymentMode === 'UPI'
+    ? `<div class="invoice-upi-payment">
+        <div id="invoice-upi-qr" class="upi-qr" role="img" aria-label="UPI payment QR code"></div>
+        ${isValidUpiId((s.upiId || '').trim()) ? '' : '<p class="invoice-upi-status">Add a valid UPI ID in Settings to create a payment QR.</p>'}
+      </div>`
+    : '';
 
   const logoHTML = s.companyLogo
     ? `<img src="${s.companyLogo}" class="bill-company-logo" alt="logo" />`
@@ -628,6 +774,8 @@ function buildBillHTML(bill) {
         </div>
       </div>
 
+      ${upiPaymentHTML}
+
       <!-- FOOTER -->
       <div class="bill-footer-area">
         <div class="footer-notes">
@@ -687,7 +835,7 @@ function openProductModal(id) {
   if (id) {
     const p = state.products.find(p => p.id === id);
     if (p) {
-      document.getElementById('p-code').value = p.code || getNextProductCode();
+      document.getElementById('p-code').value = normalizeProductCode(p.code || getNextProductCode());
       document.getElementById('p-name').value = p.name;
       document.getElementById('p-hsn').value = p.hsn || '';
       document.getElementById('p-mrp').value = p.mrp;
@@ -708,13 +856,15 @@ function saveProduct() {
     showToast('Enter a numeric product code', 'error');
     return;
   }
-  const code = String(parseInt(enteredCode, 10)).padStart(3, '0');
+  const code = normalizeProductCode(enteredCode);
   const name = document.getElementById('p-name').value.trim();
   if (!name) { showToast('Product name required', 'error'); return; }
   const mrp = parseFloat(document.getElementById('p-mrp').value) || 0;
   const special = parseFloat(document.getElementById('p-special').value) || mrp;
   const editId = document.getElementById('edit-product-id').value;
-  const duplicateCode = state.products.some(p => p.code === code && p.id !== Number(editId));
+  const duplicateCode = state.products.some(
+    p => normalizeProductCode(p.code) === code && p.id !== Number(editId)
+  );
   if (duplicateCode) {
     showToast('Product code already exists', 'error');
     return;
@@ -759,7 +909,7 @@ function renderProductsTable() {
   tbody.innerHTML = state.products.map((p, i) => `
     <tr>
       <td>${i + 1}</td>
-      <td><strong>${esc(p.code)}</strong></td>
+      <td><strong>${esc(normalizeProductCode(p.code))}</strong></td>
       <td><strong>${esc(p.name)}</strong></td>
       <td>${esc(p.hsn) || '-'}</td>
       <td>${cur}${p.mrp.toFixed(2)}</td>
@@ -777,10 +927,10 @@ function renderProductsTable() {
 }
 
 function getNextProductCode() {
-  const usedCodes = new Set(state.products.map(p => p.code).filter(Boolean));
+  const usedCodes = new Set(state.products.map(p => normalizeProductCode(p.code)).filter(Boolean));
   let codeNumber = 1;
-  while (usedCodes.has(String(codeNumber).padStart(3, '0'))) codeNumber++;
-  return String(codeNumber).padStart(3, '0');
+  while (usedCodes.has(String(codeNumber))) codeNumber++;
+  return String(codeNumber);
 }
 
 function exportProductsCsv() {
@@ -790,7 +940,7 @@ function exportProductsCsv() {
     'Record Type',
   ];
   const productRows = state.products.map(product => [
-    product.code || '',
+    normalizeProductCode(product.code || ''),
     product.name || '',
     product.hsn || '',
     product.mrp ?? '',
@@ -983,7 +1133,9 @@ function importProductsCsv(event) {
         throw new Error('CSV must include Product Code, Name, and MRP columns');
       }
 
-      const productsByCode = new Map(state.products.map(product => [product.code, product]));
+      const productsByCode = new Map(
+        state.products.map(product => [normalizeProductCode(product.code), product])
+      );
       const imported = new Map();
       rows.forEach((values, index) => {
         if (values.every(value => !value.trim())) return;
@@ -993,7 +1145,7 @@ function importProductsCsv(event) {
         if (!/^\d+$/.test(rawCode)) {
           throw new Error(`Row ${rowNumber}: product code must be numeric`);
         }
-        const code = String(parseInt(rawCode, 10)).padStart(3, '0');
+        const code = normalizeProductCode(rawCode);
         const name = (values[nameIndex] || '').trim();
         if (!name) throw new Error(`Row ${rowNumber}: product name is required`);
 
@@ -1060,14 +1212,133 @@ function importProductsCsv(event) {
 }
 
 function findProductByCode(code) {
-  const normalized = code.trim();
+  const normalized = normalizeProductCode(code);
   if (!/^\d+$/.test(normalized)) return undefined;
-  const formattedCode = String(parseInt(normalized, 10)).padStart(3, '0');
-  return state.products.find(p => p.code === formattedCode);
+  return state.products.find(p => normalizeProductCode(p.code) === normalized);
+}
+
+function normalizeProductCode(code) {
+  const normalized = String(code ?? '').trim();
+  return /^\d+$/.test(normalized) ? normalized.replace(/^0+(?=\d)/, '') : normalized;
+}
+
+function initProductCodeAutocomplete() {
+  const input = document.getElementById('item-code');
+  const suggestions = document.createElement('div');
+  suggestions.id = 'product-code-suggestions';
+  suggestions.className = 'product-code-suggestions hidden';
+  suggestions.setAttribute('role', 'listbox');
+  document.body.appendChild(suggestions);
+
+  suggestions.addEventListener('mousedown', event => event.preventDefault());
+  suggestions.addEventListener('click', event => {
+    const option = event.target.closest('[data-product-code]');
+    if (!option) return;
+    const product = state.products.find(item => item.code === option.dataset.productCode);
+    if (!product) return;
+    input.value = normalizeProductCode(product.code);
+    fillItemFromProduct(product);
+    hideProductCodeSuggestions();
+  });
+
+  input.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const options = [...suggestions.querySelectorAll('[role="option"]')];
+      if (!options.length) return;
+      event.preventDefault();
+      const activeIndex = options.findIndex(option => option.classList.contains('active'));
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      const nextIndex = activeIndex < 0
+        ? (step > 0 ? 0 : options.length - 1)
+        : (activeIndex + step + options.length) % options.length;
+      options.forEach(option => option.classList.remove('active'));
+      options[nextIndex].classList.add('active');
+      options[nextIndex].scrollIntoView({ block: 'nearest' });
+      input.setAttribute('aria-activedescendant', options[nextIndex].id);
+    } else if (event.key === 'Enter') {
+      const activeOption = suggestions.querySelector('[role="option"].active');
+      if (!activeOption) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const product = state.products.find(item => item.code === activeOption.dataset.productCode);
+      if (product) {
+        input.value = normalizeProductCode(product.code);
+        fillItemFromProduct(product);
+        hideProductCodeSuggestions();
+      }
+    } else if (event.key === 'Escape') {
+      hideProductCodeSuggestions();
+    }
+  });
+
+  document.addEventListener('click', event => {
+    if (!input.contains(event.target) && !suggestions.contains(event.target)) {
+      hideProductCodeSuggestions();
+    }
+  });
+  window.addEventListener('resize', positionProductCodeSuggestions);
+  window.addEventListener('scroll', positionProductCodeSuggestions, true);
+}
+
+function handleProductCodeInput(input) {
+  autofillProductCode(input.value);
+  renderProductCodeSuggestions();
+}
+
+function showProductCodeSuggestions() {
+  renderProductCodeSuggestions();
+}
+
+function renderProductCodeSuggestions() {
+  const input = document.getElementById('item-code');
+  const suggestions = document.getElementById('product-code-suggestions');
+  if (!input || !suggestions) return;
+  if (document.activeElement !== input && suggestions.classList.contains('hidden')) return;
+
+  const query = input.value.trim().toLowerCase();
+  const products = state.products
+    .filter(product => normalizeProductCode(product.code).toLowerCase().startsWith(query))
+    .slice(0, 8);
+  suggestions.innerHTML = products.map((product, index) =>
+    `<button type="button" id="product-code-option-${index}" role="option"
+      aria-selected="false" data-product-code="${esc(product.code)}">
+      <span>${esc(normalizeProductCode(product.code))}</span><span>${esc(product.name)}</span>
+    </button>`
+  ).join('');
+
+  if (!products.length) {
+    hideProductCodeSuggestions();
+    return;
+  }
+  positionProductCodeSuggestions();
+  suggestions.classList.remove('hidden');
+  input.setAttribute('aria-expanded', 'true');
+}
+
+function positionProductCodeSuggestions() {
+  const input = document.getElementById('item-code');
+  const suggestions = document.getElementById('product-code-suggestions');
+  if (!input || !suggestions || suggestions.classList.contains('hidden')) return;
+
+  const bounds = input.getBoundingClientRect();
+  suggestions.style.left = `${bounds.left}px`;
+  suggestions.style.top = `${bounds.bottom}px`;
+  suggestions.style.width = `${bounds.width}px`;
+}
+
+function hideProductCodeSuggestions() {
+  const input = document.getElementById('item-code');
+  const suggestions = document.getElementById('product-code-suggestions');
+  if (!suggestions) return;
+  suggestions.classList.add('hidden');
+  if (input) {
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  }
 }
 
 function fillItemFromProduct(product) {
-  document.getElementById('item-code').value = product.code || '';
+  document.getElementById('item-code').value = normalizeProductCode(product.code || '');
   document.getElementById('item-name').value = product.name;
   document.getElementById('item-hsn').value = product.hsn || '';
   document.getElementById('item-mrp').value = product.mrp || '';
@@ -1179,8 +1450,7 @@ function renderAllDataLists() {
   // Products
   const pdl = document.getElementById('product-list');
   pdl.innerHTML = state.products.map(p => `<option value="${esc(p.name)}">`).join('');
-  const productCodeList = document.getElementById('product-code-list');
-  productCodeList.innerHTML = state.products.map(p => `<option value="${esc(p.code)}">`).join('');
+  renderProductCodeSuggestions();
 
   // Customers
   const cdl = document.getElementById('customer-list');
@@ -1202,6 +1472,8 @@ function applySettings() {
   setVal('bill-prefix', s.billPrefix || 'INV');
   setVal('bill-start', s.billStart || 1001);
   setVal('currency-symbol', s.currencySymbol || '₹');
+  setVal('upi-id', s.upiId || '');
+  setVal('upi-display-name', s.upiDisplayName || 'MARS Groups');
   setVal('default-payment', s.defaultPayment || 'Cash');
   setVal('bill-footer', s.billFooter || 'Thank you for your purchase!');
   document.getElementById('accent-color').value = s.accentColor || '#4f46e5';
@@ -1230,6 +1502,8 @@ function saveSettings() {
   s.billPrefix = val('bill-prefix') || 'INV';
   s.billStart = parseInt(val('bill-start')) || 1001;
   s.currencySymbol = val('currency-symbol') || '₹';
+  s.upiId = val('upi-id').trim();
+  s.upiDisplayName = val('upi-display-name').trim() || 'MARS Groups';
   s.defaultPayment = val('default-payment');
   s.billFooter = val('bill-footer');
   s.accentColor = document.getElementById('accent-color').value;

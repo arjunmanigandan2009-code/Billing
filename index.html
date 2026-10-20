@@ -153,8 +153,9 @@
               <div class="form-row">
                 <div class="form-group">
                   <label>Product Code</label>
-                  <input type="text" id="item-code" placeholder="e.g. 001" list="product-code-list" oninput="autofillProductCode(this.value)" />
-                  <datalist id="product-code-list"></datalist>
+                  <input type="text" id="item-code" placeholder="Type or select code" autocomplete="off"
+                    aria-autocomplete="list" aria-controls="product-code-suggestions" aria-expanded="false"
+                    oninput="handleProductCodeInput(this)" onfocus="showProductCodeSuggestions()" />
                 </div>
                 <div class="form-group" style="flex:2">
                   <label>Product / Item Name *</label>
@@ -307,6 +308,10 @@
               <div class="preview-total">
                 <span>Grand Total</span>
                 <span id="prev-grand">₹0.00</span>
+              </div>
+              <div id="upi-payment-preview" class="upi-payment-panel hidden">
+                <div id="prev-upi-qr" class="upi-qr" role="img" aria-label="UPI payment QR code"></div>
+                <span id="prev-upi-status" class="upi-payment-status" role="status" aria-live="polite"></span>
               </div>
             </div>
           </div>
@@ -513,6 +518,16 @@
               </select>
             </div>
             <div class="form-group">
+              <label for="upi-id">UPI ID for QR payments</label>
+              <input type="text" id="upi-id" placeholder="yourname@bank" autocomplete="off" />
+              <small class="form-hint">Used to create a payment QR when UPI is selected.</small>
+            </div>
+            <div class="form-group">
+              <label for="upi-display-name">UPI QR display name</label>
+              <input type="text" id="upi-display-name" placeholder="MARS Groups" autocomplete="organization" />
+              <small class="form-hint">Name shown by the UPI app when the QR is scanned.</small>
+            </div>
+            <div class="form-group">
               <label>Bill Footer Message</label>
               <textarea id="bill-footer" rows="2" placeholder="Thank you for your purchase!"></textarea>
             </div>
@@ -558,7 +573,7 @@
       <input type="hidden" id="edit-product-id" />
       <div class="form-group">
         <label>Product Code *</label>
-        <input type="text" id="p-code" placeholder="e.g. 001" inputmode="numeric" />
+        <input type="text" id="p-code" placeholder="e.g. 1" inputmode="numeric" />
       </div>
       <div class="form-group">
         <label>Product Name *</label>
@@ -721,6 +736,7 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" referrerpolicy="no-referrer"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -22,6 +22,9 @@
 }
 
 /* ============ DARK THEME ============ */
+[hidden],
+.hidden { display: none !important; }
+
 [data-theme="dark"] {
   --bg: #0f172a;
   --card: #1e293b;
@@ -299,6 +302,35 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px rgba(79,70,229,.1);
 }
 
+.product-code-suggestions {
+  position: fixed;
+  z-index: 10000;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+}
+
+.product-code-suggestions button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.product-code-suggestions button:hover,
+.product-code-suggestions button.active {
+  background: var(--accent-light);
+}
+
 input[readonly] { background: #f3f4f6; cursor: not-allowed; }
 textarea { resize: vertical; }
 
@@ -435,6 +467,35 @@ tr:hover td { background: #fafbff; }
 .preview-company { text-align: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); }
 .preview-meta { margin-bottom: 10px; display: flex; flex-direction: column; gap: 3px; }
 .preview-meta div { display: flex; gap: 4px; }
+.upi-payment-panel,
+.invoice-upi-payment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.upi-qr {
+  display: grid;
+  place-items: center;
+  min-width: 132px;
+  min-height: 132px;
+  background: #fff;
+}
+
+.upi-qr canvas,
+.upi-qr img { display: block; max-width: 100%; height: auto; }
+.upi-payment-status,
+.invoice-upi-status { color: var(--muted); font-size: 11px; }
+.invoice-upi-payment { max-width: 420px; }
+.invoice-upi-status { margin: 0; }
+
 .preview-total {
   display: flex;
   justify-content: space-between;
