@@ -486,11 +486,13 @@ function createUpiPaymentLink(amount, billNo = '') {
 function updateUpiPaymentPreview(amount) {
   const panel = document.getElementById('upi-payment-preview');
   const qrContainer = document.getElementById('prev-upi-qr');
+  const instruction = document.getElementById('prev-upi-instruction');
   const status = document.getElementById('prev-upi-status');
   const upiId = (state.settings.upiId || '').trim();
 
   panel.classList.toggle('hidden', val('payment-mode') !== 'UPI');
   qrContainer.replaceChildren();
+  instruction.classList.add('hidden');
   status.textContent = '';
   if (val('payment-mode') !== 'UPI') return;
 
@@ -517,6 +519,7 @@ function updateUpiPaymentPreview(amount) {
       colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.M,
     });
+    instruction.classList.remove('hidden');
   } catch (error) {
     console.error('Unable to generate the UPI payment QR code.', error);
     status.textContent = 'Could not generate the payment QR. Please try again.';
@@ -624,6 +627,7 @@ function renderInvoiceUpiQr(bill) {
   const qrContainer = document.getElementById('invoice-upi-qr');
   const paymentLink = createUpiPaymentLink(bill.grandTotal, bill.billNo);
   if (!qrContainer || !paymentLink) return;
+  const instruction = document.getElementById('invoice-upi-instruction');
   if (typeof QRCode === 'undefined') {
     qrContainer.textContent = 'QR generation is unavailable. Check your internet connection.';
     return;
@@ -638,6 +642,7 @@ function renderInvoiceUpiQr(bill) {
       colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.M,
     });
+    instruction.classList.remove('hidden');
   } catch (error) {
     console.error('Unable to generate the invoice UPI QR code.', error);
     qrContainer.textContent = 'Could not generate the payment QR.';
@@ -670,7 +675,10 @@ function buildBillHTML(bill) {
   const cur = s.currencySymbol || '₹';
   const upiPaymentHTML = bill.paymentMode === 'UPI'
     ? `<div class="invoice-upi-payment">
-        <div id="invoice-upi-qr" class="upi-qr" role="img" aria-label="UPI payment QR code"></div>
+        <div class="upi-payment-content">
+          <div id="invoice-upi-qr" class="upi-qr" role="img" aria-label="UPI payment QR code"></div>
+          <span id="invoice-upi-instruction" class="upi-payment-instruction hidden">Scan with any UPI app to pay</span>
+        </div>
         ${isValidUpiId((s.upiId || '').trim()) ? '' : '<p class="invoice-upi-status">Add a valid UPI ID in Settings to create a payment QR.</p>'}
       </div>`
     : '';
